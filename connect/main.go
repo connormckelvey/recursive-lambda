@@ -9,13 +9,6 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 )
 
-var config = &kafka.ConfigMap{
-	"bootstrap.servers": "localhost",
-	"group.id":          "myGroup",
-	"auto.offset.reset": "earliest",
-}
-var topics = []string{"myTopic", "^aRegex$"}
-
 func receiveMessages(consumer *kafka.Consumer, messages chan *kafka.Message, quit chan struct{}) {
 	fmt.Println("Waiting to consume messages...")
 	for {
@@ -47,19 +40,28 @@ func saveMessages(consumer *kafka.Consumer, messages chan *kafka.Message, quit c
 	}
 }
 
+func timeRemaining(ctx context.Context) float64 {
+	deadline, _ := ctx.Deadline()
+	return time.Until(deadline).Seconds() / 1000
+}
+
 func receiveDeadline(ctx context.Context, quit chan struct{}) {
 	fmt.Println("Waiting for Deadline...")
 	for {
-		deadline, _ := ctx.Deadline()
-		timeRemaining := time.Until(deadline).Seconds() * 1000
-		fmt.Printf("Time Remaining %v", timeRemaining)
-		if timeRemaining <= 1000 {
+		if timeRemaining(ctx) <= 1000 {
 			close(quit)
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 }
+
+var config = &kafka.ConfigMap{
+	"bootstrap.servers": "localhost",
+	"group.id":          "myGroup",
+	"auto.offset.reset": "earliest",
+}
+var topics = []string{"myTopic", "^aRegex$"}
 
 func Handler(ctx context.Context) error {
 	fmt.Println("Connecting to Kafka")
@@ -75,11 +77,11 @@ func Handler(ctx context.Context) error {
 	fmt.Println("Subscribed")
 
 	quit := make(chan struct{})
-	messages := make(chan *kafka.Message)
+	messages := make(chan *kafka.Message, 50) // Buffered channels will block, this way we dont consume memory with messages before we can save them, option maybe?
 
+	go receiveDeadline(ctx, quit)
 	go receiveMessages(consumer, messages, quit)
 	go saveMessages(consumer, messages, quit)
-	go receiveDeadline(ctx, quit)
 
 	for {
 		select {
