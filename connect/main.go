@@ -17,8 +17,9 @@ var config = &kafka.ConfigMap{
 var topics = []string{"myTopic", "^aRegex$"}
 
 func receiveMessages(consumer *kafka.Consumer, messages chan *kafka.Message, quit chan struct{}) {
+	fmt.Println("Waiting to consume messages...")
 	for {
-		msg, err := consumer.ReadMessage(-1)
+		msg, err := consumer.ReadMessage(-1) // Check for timeout error, if so maybe dont recurse?
 		if err != nil {
 			fmt.Printf("Consumer error: %v (%v)\n", err, msg)
 			return
@@ -37,6 +38,7 @@ func saveMessage(consumer *kafka.Consumer, message *kafka.Message) {
 }
 
 func saveMessages(consumer *kafka.Consumer, messages chan *kafka.Message, quit chan struct{}) {
+	fmt.Println("Waiting to save messages...")
 	for {
 		select {
 		case msg := <-messages:
@@ -46,14 +48,16 @@ func saveMessages(consumer *kafka.Consumer, messages chan *kafka.Message, quit c
 }
 
 func receiveDeadline(ctx context.Context, quit chan struct{}) {
+	fmt.Println("Waiting for Deadline...")
 	for {
 		deadline, _ := ctx.Deadline()
-		timeRemaining := time.Until(deadline).Truncate(100 * time.Millisecond)
-		fmt.Printf("Time Remaining %d", timeRemaining)
-		if timeRemaining <= 0 {
+		timeRemaining := time.Until(deadline).Seconds() * 1000
+		fmt.Printf("Time Remaining %v", timeRemaining)
+		if timeRemaining <= 1000 {
 			close(quit)
 			return
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -89,6 +93,8 @@ func Handler(ctx context.Context) error {
 }
 
 func main() {
-	Handler(context.Background())
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(10*time.Second))
+	Handler(ctx)
 	// lambda.Start(Handler)
+	cancel()
 }
