@@ -25,24 +25,30 @@ func receiveMessages(consumer *kafka.Consumer, messages chan *kafka.Message, qui
 	}
 }
 
-func s3Worker(id int, messages <-chan *kafka.Message, consumer *kafka.Consumer, errors chan<- error) {
-	for msg := range messages {
-		fmt.Println("Worker", id, "uploading", msg)
-		time.Sleep(1 * time.Second) //Upload to s3 here
-		fmt.Println("Worker", id, "uploaded", msg)
-		if _, err := consumer.CommitMessage(msg); err != nil {
-			fmt.Println("Err", err)
-		} else {
-			fmt.Println("Worker", id, "commited offset for", msg)
+func s3Worker(id int, messages <-chan *kafka.Message, consumer *kafka.Consumer, quit chan struct{}) {
+	for {
+		select {
+		case <-quit:
+			fmt.Println("Quit signal received, working", id, "signing off")
+			return
+		case msg := <-messages:
+			fmt.Println("Worker", id, "uploading", msg)
+			time.Sleep(1 * time.Second) //Upload to s3 here
+			fmt.Println("Worker", id, "uploaded", msg)
+			if _, err := consumer.CommitMessage(msg); err != nil {
+				fmt.Println("Err", err)
+			} else {
+				fmt.Println("Worker", id, "commited offset for", msg)
+			}
 		}
 	}
 }
 
-func saveMessages(consumer *kafka.Consumer, messages chan *kafka.Message, quit chan struct{}, errors chan<- error) {
+func startWorkers(consumer *kafka.Consumer, messages chan *kafka.Message, quit chan struct{}) {
 	fmt.Println("Waiting to save messages...")
 	workers := 50
 	for w := 0; w < workers; w++ {
-		go s3Worker(w, messages, consumer, errors)
+		go s3Worker(w, messages, consumer, quit)
 	}
 }
 
@@ -58,7 +64,6 @@ func receiveDeadline(ctx context.Context, quit chan struct{}) {
 			close(quit)
 			return
 		}
-		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -87,7 +92,7 @@ func Handler(ctx context.Context) error {
 
 	go receiveDeadline(ctx, quit)
 	go receiveMessages(consumer, messages, quit)
-	go saveMessages(consumer, messages, quit)
+	go startWorkers(consumer, messages, quit)
 
 	for {
 		select {
@@ -96,6 +101,12 @@ func Handler(ctx context.Context) error {
 			// Recurse
 			// lambda.Invoke()
 			return nil
+		case <-ctx.Done():
+			fmt.Println("Done Channel Called-- Lambda Shutting Down")
+			fmt.Println("Number of unprocessed Messages", len(messages))
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 		}
 	}
 }
