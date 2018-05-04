@@ -25,18 +25,24 @@ func receiveMessages(consumer *kafka.Consumer, messages chan *kafka.Message, qui
 	}
 }
 
-func saveMessage(consumer *kafka.Consumer, message *kafka.Message) {
-	// Upload to S3
-	consumer.CommitMessage(message)
+func s3Worker(id int, messages <-chan *kafka.Message, consumer *kafka.Consumer, errors chan<- error) {
+	for msg := range messages {
+		fmt.Println("Worker", id, "uploading", msg)
+		time.Sleep(1 * time.Second) //Upload to s3 here
+		fmt.Println("Worker", id, "uploaded", msg)
+		if _, err := consumer.CommitMessage(msg); err != nil {
+			fmt.Println("Err", err)
+		} else {
+			fmt.Println("Worker", id, "commited offset for", msg)
+		}
+	}
 }
 
-func saveMessages(consumer *kafka.Consumer, messages chan *kafka.Message, quit chan struct{}) {
+func saveMessages(consumer *kafka.Consumer, messages chan *kafka.Message, quit chan struct{}, errors chan<- error) {
 	fmt.Println("Waiting to save messages...")
-	for {
-		select {
-		case msg := <-messages:
-			go saveMessage(consumer, msg)
-		}
+	workers := 50
+	for w := 0; w < workers; w++ {
+		go s3Worker(w, messages, consumer, errors)
 	}
 }
 
