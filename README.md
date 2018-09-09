@@ -10,4 +10,4 @@ Kafka Connect is a massive system that does the job, but maintaining it is diffi
 
 The idea is to configure a Lambda function on a regular cadence (daily, hourly or more) and 
 as long as the Work Channel contains messages, it will continue to invoke itself, thus scaling in response to 
-a large value of messages.
+a large volume of messages.
